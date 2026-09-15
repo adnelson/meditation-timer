@@ -1,33 +1,67 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
 
 function App() {
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const [volume, setVolume] = useState(50)
-  const [error, setError] = useState('')
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const fadeFrameRef = useRef<number | null>(null);
+  const [volume, setVolume] = useState(50);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (fadeFrameRef.current !== null) {
+        cancelAnimationFrame(fadeFrameRef.current);
+      }
+    };
+  }, []);
 
   async function playBell() {
-    const audio = audioRef.current
-    if (!audio) return
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    audio.volume = volume / 100
-    audio.currentTime = 0
-    setError('')
+    if (fadeFrameRef.current !== null) {
+      cancelAnimationFrame(fadeFrameRef.current);
+      fadeFrameRef.current = null;
+    }
+    audio.volume = volume / 100;
+    audio.currentTime = 0;
+    setError("");
 
     try {
-      await audio.play()
+      await audio.play();
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      setError('The bell could not be played. Please try again.')
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      setError("The bell could not be played. Please try again.");
     }
   }
 
   function stopBell() {
-    const audio = audioRef.current
-    if (!audio) return
+    const audio = audioRef.current;
+    if (!audio || fadeFrameRef.current !== null) return;
 
-    audio.pause()
-    audio.currentTime = 0
-    setError('')
+    setError("");
+    if (audio.paused || audio.ended) {
+      audio.currentTime = 0;
+      return;
+    }
+
+    const startVolume = audio.volume;
+    const startTime = performance.now();
+
+    function fadeOut(now: number) {
+      if (!audio) return;
+      const progress = Math.min((now - startTime) / 500, 1);
+      audio.volume = startVolume * (1 - progress);
+
+      if (progress < 1) {
+        fadeFrameRef.current = requestAnimationFrame(fadeOut);
+      } else {
+        audio.pause();
+        audio.currentTime = 0;
+        fadeFrameRef.current = null;
+      }
+    }
+
+    fadeFrameRef.current = requestAnimationFrame(fadeOut);
   }
 
   return (
@@ -42,7 +76,11 @@ function App() {
         <p className="mt-6 text-lg leading-relaxed text-stone-600">
           Take a breath. Make space for a little stillness.
         </p>
-        <audio ref={audioRef} src={`${import.meta.env.BASE_URL}audio/meditation-bell.mp3`} preload="auto" />
+        <audio
+          ref={audioRef}
+          src={`${import.meta.env.BASE_URL}audio/meditation-bell.mp3`}
+          preload="auto"
+        />
         <div className="mt-8 flex justify-center gap-3">
           <button
             type="button"
@@ -72,17 +110,23 @@ function App() {
             value={volume}
             aria-valuetext={`${volume}%`}
             onChange={(event) => {
-              const nextVolume = Number(event.target.value)
-              setVolume(nextVolume)
-              if (audioRef.current) audioRef.current.volume = nextVolume / 100
+              const nextVolume = Number(event.target.value);
+              setVolume(nextVolume);
+              if (audioRef.current && fadeFrameRef.current === null) {
+                audioRef.current.volume = nextVolume / 100;
+              }
             }}
             className="w-full cursor-pointer accent-emerald-700"
           />
         </div>
-        {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}
+        {error && (
+          <p role="alert" className="mt-4 text-sm text-red-700">
+            {error}
+          </p>
+        )}
       </section>
     </main>
-  )
+  );
 }
 
-export default App
+export default App;

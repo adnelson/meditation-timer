@@ -2,25 +2,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { advanceSchedule, countdown, createSchedule, minutesToMs } from "./schedule";
 import type { Mode, Schedule } from "./schedule";
+import { loadSettings, saveSettings } from "./settings";
 
 function App() {
+  const [initialSettings] = useState(loadSettings);
   const audioRef = useRef<HTMLAudioElement>(null);
   const fadeFrameRef = useRef<number | null>(null);
-  const volumeRef = useRef(50);
+  const volumeRef = useRef(initialSettings.volume);
   const actionRef = useRef(0);
   const scheduleRef = useRef<Schedule | null>(null);
-  const [mode, setMode] = useState<Mode>("Bell");
-  const [timerMinutes, setTimerMinutes] = useState("10");
-  const [intervalMinutes, setIntervalMinutes] = useState("5");
-  const [ringAtStart, setRingAtStart] = useState(true);
-  const [startTime, setStartTime] = useState("");
-  const [stopTime, setStopTime] = useState("");
+  const [mode, setMode] = useState<Mode>(initialSettings.mode);
+  const [timerMinutes, setTimerMinutes] = useState(initialSettings.timerMinutes);
+  const [intervalMinutes, setIntervalMinutes] = useState(initialSettings.intervalMinutes);
+  const [ringAtStart, setRingAtStart] = useState(initialSettings.ringAtStart);
+  const [startTime, setStartTime] = useState(initialSettings.startTime);
+  const [stopTime, setStopTime] = useState(initialSettings.stopTime);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [now, setNow] = useState(Date.now);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState("");
-  const [volume, setVolume] = useState(50);
+  const [volume, setVolume] = useState(initialSettings.volume);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    saveSettings({ mode, timerMinutes, intervalMinutes, ringAtStart, startTime, stopTime, volume });
+  }, [mode, timerMinutes, intervalMinutes, ringAtStart, startTime, stopTime, volume]);
 
   useEffect(() => {
     return () => {

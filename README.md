@@ -50,3 +50,8 @@ minutes up to 1,440 minutes (24 hours).
 Keep the page open and your device awake for scheduled bells. Browser suspension
 can delay playback; after resuming, missed intervals produce at most one bell,
 and sessions past their stop time finish silently. Reloading clears the session.
+
+Mode, timer duration, interval, ring-at-start preference, start/stop times, and volume
+are saved in localStorage and restored when you reopen the page. Active sessions
+are not resumed. Invalid saved values fall back to defaults; if storage is
+unavailable, settings continue to work for the current visit.

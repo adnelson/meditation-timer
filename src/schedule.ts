@@ -32,14 +32,16 @@ export function createSchedule(
   startTime: string,
   stopTime: string,
   now: number,
+  ringAtStart = false,
 ): Schedule {
   const period = minutesToMs(minutes);
   const start = mode === "Interval" && startTime ? clockTime(startTime, now) : now;
   const end = mode === "Interval" && stopTime ? clockTime(stopTime, start) : null;
-  if (end !== null && start + period >= end) {
-    throw new Error("The stop time must leave room for at least one bell after a full interval.");
+  const nextBell = mode === "Interval" && ringAtStart ? start : start + period;
+  if (end !== null && nextBell >= end) {
+    throw new Error("The stop time must be after the first bell.");
   }
-  return { mode, start, nextBell: start + period, period, end };
+  return { mode, start, nextBell, period, end };
 }
 
 export function advanceSchedule(schedule: Schedule, now: number): {

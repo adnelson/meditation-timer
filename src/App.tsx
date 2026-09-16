@@ -12,6 +12,7 @@ function App() {
   const [mode, setMode] = useState<Mode>("Bell");
   const [timerMinutes, setTimerMinutes] = useState("10");
   const [intervalMinutes, setIntervalMinutes] = useState("5");
+  const [ringAtStart, setRingAtStart] = useState(true);
   const [startTime, setStartTime] = useState("");
   const [stopTime, setStopTime] = useState("");
   const [schedule, setSchedule] = useState<Schedule | null>(null);
@@ -104,6 +105,7 @@ function App() {
   }, [playBell, stopBell]);
 
   function stopSession() {
+    // Cancel future bells immediately; let the shared 500 ms fade stop current audio.
     actionRef.current += 1;
     scheduleRef.current = null;
     setSchedule(null);
@@ -117,7 +119,7 @@ function App() {
     const action = ++actionRef.current;
     const time = Date.now();
     try {
-      const next = createSchedule(mode, mode === "Timer" ? timerMinutes : intervalMinutes, startTime, stopTime, time);
+      const next = createSchedule(mode, mode === "Timer" ? timerMinutes : intervalMinutes, startTime, stopTime, time, ringAtStart);
       const audio = audioRef.current;
       if (!audio) return;
       setError("");
@@ -208,6 +210,16 @@ function App() {
             />
             {mode === "Interval" && (
               <>
+                <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={ringAtStart}
+                    onChange={(event) => setRingAtStart(event.target.checked)}
+                    disabled={active}
+                    className="size-4 accent-emerald-700"
+                  />
+                  Ring at start
+                </label>
                 <div className="mt-4 grid grid-cols-2 gap-4">
                   <label className="text-sm font-medium">
                     Start time (optional)
@@ -219,7 +231,7 @@ function App() {
                   </label>
                 </div>
                 <p className="mt-3 text-xs leading-relaxed text-stone-500">
-                  Local time; a past time means its next occurrence. Leave blank to start now or continue until stopped. The first bell plays after one full interval. No bells play at or after the stop time.
+                  Local time; a past time means its next occurrence. Ring at start plays a bell when the session begins, immediately or at the chosen start time. When unchecked, the first bell plays after one full interval. Leave stop time blank to continue until stopped. No bells play at or after the stop time.
                 </p>
               </>
             )}

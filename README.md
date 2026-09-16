@@ -37,8 +37,10 @@ to keep dependency installs reproducible.
 - **Bell:** play the bell manually; Stop fades it out over half a second.
 - **Timer:** choose a duration in minutes, then Start. The countdown ends with one bell.
 - **Interval:** choose the minutes between bells and optional local start/stop times.
-  A past clock time means its next occurrence, including overnight windows. The first
-  bell plays one full interval after the start. No new bell plays at or after the
+  A past clock time means its next occurrence, including overnight windows. Enable **Ring at start** to ring when the session begins, either immediately or
+  at the scheduled start time. This option is on by default. With it off, the first bell
+  plays after one full interval.
+  No new bell plays at or after the
   stop time, and any playing bell fades out when the session ends.
 
 Stop cancels the session and fades out the bell. Changing modes also cancels the

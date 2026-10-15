@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advanceSchedule, countdown, createSchedule, minutesToMs } from "../src/schedule.ts";
+import { advanceSchedule, countdown, countInToMs, createSchedule, elapsedTime, minutesToMs, timerDurationToMs } from "../src/schedule.ts";
 
 const now = new Date(2026, 8, 15, 10, 0, 0).getTime();
 
@@ -8,6 +8,43 @@ test("timer rings once at its deadline", () => {
   const timer = createSchedule("Timer", "2", "", "", now);
   assert.equal(advanceSchedule(timer, now + 119_999).ring, false);
   assert.deepEqual(advanceSchedule(timer, now + 120_000), { ring: true, schedule: null });
+});
+
+test("timer accepts minutes:seconds durations", () => {
+  assert.equal(timerDurationToMs("0:30"), 30_000);
+  assert.equal(timerDurationToMs("10:01"), 601_000);
+  assert.equal(timerDurationToMs("0.5"), 30_000);
+  assert.equal(createSchedule("Timer", "0:30", "", "", now).nextBell, now + 30_000);
+  for (const value of ["0:00", "1:60", "1:2", "-1:30", "1440:01", "abc:30"]) {
+    assert.throws(() => timerDurationToMs(value));
+  }
+  assert.throws(() => createSchedule("Interval", "0:30", "", "", now));
+});
+
+test("timer count-in delays the start and ending bell", () => {
+  const timer = createSchedule("Timer", "2", "", "", now, false, { countInMs: countInToMs("10") });
+  assert.equal(timer.start, now + 10_000);
+  assert.equal(timer.nextBell, now + 130_000);
+  assert.equal(advanceSchedule(timer, now + 10_000).ring, false);
+  assert.deepEqual(advanceSchedule(timer, now + 130_000), { ring: true, schedule: null });
+});
+
+test("optional timer start bell rings after count-in and ending bell still rings", () => {
+  const timer = createSchedule("Timer", "2", "", "", now, false, { countInMs: countInToMs("10"), bellAtStart: true });
+  assert.equal(advanceSchedule(timer, now + 9_999).ring, false);
+  const started = advanceSchedule(timer, now + 10_000);
+  assert.equal(started.ring, true);
+  assert.equal(started.schedule?.nextBell, now + 130_000);
+  assert.equal(advanceSchedule(started.schedule!, now + 10_000).ring, false);
+  assert.deepEqual(advanceSchedule(started.schedule!, now + 130_000), { ring: true, schedule: null });
+  assert.deepEqual(advanceSchedule(timer, now + 130_000), { ring: true, schedule: null });
+});
+
+test("count-in requires whole seconds within range", () => {
+  assert.equal(countInToMs("10"), 10_000);
+  for (const value of ["", "0", "1.5", "-1", "3601", "Infinity", "abc"]) {
+    assert.throws(() => countInToMs(value));
+  }
 });
 
 test("interval waits a full interval and skips missed bells without drifting", () => {
@@ -72,6 +109,12 @@ test("countdown rounds up and supports hours", () => {
   assert.equal(countdown(1001), "00:02");
   assert.equal(countdown(-1), "00:00");
   assert.equal(countdown(3_661_000), "01:01:01");
+});
+
+test("elapsed time rounds down and adds hours only when needed", () => {
+  assert.equal(elapsedTime(600_999), "10:00");
+  assert.equal(elapsedTime(601_000), "10:01");
+  assert.equal(elapsedTime(3_661_000), "01:01:01");
 });
 
 for (const startTime of ["", "10:30"]) {

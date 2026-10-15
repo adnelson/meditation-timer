@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { advanceSchedule, countdown, createSchedule, minutesToMs } from "./schedule";
+import { advanceSchedule, countdown, countInToMs, createSchedule, elapsedTime, minutesToMs, timerDurationToMs } from "./schedule";
 import type { Mode, Schedule } from "./schedule";
 import { loadSettings, saveSettings } from "./settings";
 
@@ -11,22 +11,29 @@ function App() {
   const volumeRef = useRef(initialSettings.volume);
   const actionRef = useRef(0);
   const scheduleRef = useRef<Schedule | null>(null);
+  const completedTimerRef = useRef<{ start: number; deadline: number } | null>(null);
   const [mode, setMode] = useState<Mode>(initialSettings.mode);
   const [timerMinutes, setTimerMinutes] = useState(initialSettings.timerMinutes);
+  const [addCountIn, setAddCountIn] = useState(initialSettings.addCountIn);
+  const [countInSeconds, setCountInSeconds] = useState(initialSettings.countInSeconds);
+  const [timerBellAtStart, setTimerBellAtStart] = useState(initialSettings.timerBellAtStart);
+  const [keepAwake, setKeepAwake] = useState(initialSettings.keepAwake);
   const [intervalMinutes, setIntervalMinutes] = useState(initialSettings.intervalMinutes);
   const [ringAtStart, setRingAtStart] = useState(initialSettings.ringAtStart);
   const [startTime, setStartTime] = useState(initialSettings.startTime);
   const [stopTime, setStopTime] = useState(initialSettings.stopTime);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [completedTimer, setCompletedTimer] = useState<{ start: number; deadline: number } | null>(null);
   const [now, setNow] = useState(Date.now);
   const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState("");
   const [volume, setVolume] = useState(initialSettings.volume);
   const [error, setError] = useState("");
+  const timerSessionActive = schedule?.mode === "Timer" || completedTimer !== null;
 
   useEffect(() => {
-    saveSettings({ mode, timerMinutes, intervalMinutes, ringAtStart, startTime, stopTime, volume });
-  }, [mode, timerMinutes, intervalMinutes, ringAtStart, startTime, stopTime, volume]);
+    saveSettings({ mode, timerMinutes, addCountIn, countInSeconds, timerBellAtStart, keepAwake, intervalMinutes, ringAtStart, startTime, stopTime, volume });
+  }, [mode, timerMinutes, addCountIn, countInSeconds, timerBellAtStart, keepAwake, intervalMinutes, ringAtStart, startTime, stopTime, volume]);
 
   useEffect(() => {
     return () => {
@@ -90,8 +97,11 @@ function App() {
   useEffect(() => {
     const tick = () => {
       const current = scheduleRef.current;
-      if (!current) return;
       const time = Date.now();
+      if (!current) {
+        if (completedTimerRef.current) setNow(time);
+        return;
+      }
       setNow(time);
       const result = advanceSchedule(current, time);
       scheduleRef.current = result.schedule;
@@ -99,6 +109,11 @@ function App() {
       if (result.ring) void playBell();
       if (!result.schedule) {
         if (current.mode === "Interval") stopBell();
+        else {
+          const completed = { start: current.start, deadline: current.start + current.period };
+          completedTimerRef.current = completed;
+          setCompletedTimer(completed);
+        }
         setStatus(current.mode === "Timer" ? "Timer complete." : "Interval session complete.");
       }
     };
@@ -110,11 +125,63 @@ function App() {
     };
   }, [playBell, stopBell]);
 
+  useEffect(() => {
+    if (!timerSessionActive || !keepAwake || !navigator.wakeLock) return;
+    let disposed = false;
+    let pending = false;
+    let lock: WakeLockSentinel | null = null;
+
+    async function acquire() {
+      if (disposed || pending || lock || document.visibilityState !== "visible") return;
+      pending = true;
+      try {
+        const acquired = await navigator.wakeLock.request("screen");
+        if (disposed || document.visibilityState !== "visible") {
+          void acquired.release();
+        } else {
+          lock = acquired;
+          acquired.addEventListener("release", onRelease);
+        }
+      } catch {
+        // Unsupported or denied wake locks should not interrupt the timer.
+      } finally {
+        pending = false;
+      }
+    }
+
+    function onRelease() {
+      lock = null;
+      if (!disposed) void acquire();
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void acquire();
+      else if (lock) {
+        lock.removeEventListener("release", onRelease);
+        void lock.release();
+        lock = null;
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void acquire();
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (lock) {
+        lock.removeEventListener("release", onRelease);
+        void lock.release();
+      }
+    };
+  }, [timerSessionActive, keepAwake]);
+
   function stopSession() {
     // Cancel future bells immediately; let the shared 500 ms fade stop current audio.
     actionRef.current += 1;
     scheduleRef.current = null;
+    completedTimerRef.current = null;
     setSchedule(null);
+    setCompletedTimer(null);
     setStarting(false);
     setStatus("");
     stopBell();
@@ -123,9 +190,10 @@ function App() {
   async function startSession() {
     if (mode === "Bell") return;
     const action = ++actionRef.current;
-    const time = Date.now();
     try {
-      const next = createSchedule(mode, mode === "Timer" ? timerMinutes : intervalMinutes, startTime, stopTime, time, ringAtStart);
+      const countInMs = mode === "Timer" && addCountIn ? countInToMs(countInSeconds) : 0;
+      if (mode === "Timer") timerDurationToMs(timerMinutes);
+      else minutesToMs(intervalMinutes);
       const audio = audioRef.current;
       if (!audio) return;
       setError("");
@@ -143,8 +211,14 @@ function App() {
       audio.pause();
       audio.currentTime = 0;
       audio.volume = volumeRef.current / 100;
+      const next = createSchedule(mode, mode === "Timer" ? timerMinutes : intervalMinutes, startTime, stopTime, Date.now(), ringAtStart, {
+        countInMs,
+        bellAtStart: mode === "Timer" && timerBellAtStart,
+      });
       scheduleRef.current = next;
+      completedTimerRef.current = null;
       setSchedule(next);
+      setCompletedTimer(null);
       setNow(Date.now());
     } catch (error) {
       if (actionRef.current !== action) return;
@@ -154,15 +228,16 @@ function App() {
     }
   }
 
-  const active = starting || schedule !== null;
+  const active = starting || schedule !== null || completedTimer !== null;
   const waiting = schedule !== null && now < schedule.start;
   const stoppingNext = schedule !== null && schedule.end !== null && schedule.end <= schedule.nextBell;
   let remaining = 0;
   if (schedule) {
-    remaining = (waiting ? schedule.start : stoppingNext ? schedule.end! : schedule.nextBell) - now;
-  } else if (mode === "Timer" && status !== "Timer complete.") {
-    try { remaining = minutesToMs(timerMinutes); } catch { /* Invalid input is explained on Start. */ }
+    remaining = (waiting ? schedule.start : schedule.mode === "Timer" ? schedule.start + schedule.period : stoppingNext ? schedule.end! : schedule.nextBell) - now;
+  } else if (mode === "Timer" && !completedTimer) {
+    try { remaining = timerDurationToMs(timerMinutes); } catch { /* Invalid input is explained on Start. */ }
   }
+  const showingElapsed = completedTimer !== null && now >= completedTimer.deadline + 1000;
   const inputClass = "mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-stone-900 disabled:opacity-50";
 
   return (
@@ -202,10 +277,11 @@ function App() {
         {mode !== "Bell" && (
           <div className="mt-6 text-left">
             <label className="block text-sm font-medium" htmlFor="minutes">
-              {mode === "Timer" ? "Timer duration (minutes)" : "Minutes between bells"}
+              {mode === "Timer" ? "Timer duration (minutes:seconds)" : "Minutes between bells"}
             </label>
             <input
-              id="minutes" type="number" min="0.01" max="1440" step="any"
+              id="minutes" type={mode === "Timer" ? "text" : "number"}
+              {...(mode === "Timer" ? { placeholder: "10:00", inputMode: "text" as const } : { min: "0.01", max: "1440", step: "any" })}
               value={mode === "Timer" ? timerMinutes : intervalMinutes}
               onChange={(event) => {
                 setStatus("");
@@ -214,6 +290,29 @@ function App() {
               }}
               disabled={active} className={inputClass}
             />
+            {mode === "Timer" && <p className="mt-2 text-xs text-stone-500">Use minutes:seconds (for example, 0:30), or enter minutes.</p>}
+            {mode === "Timer" && (
+              <>
+                <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+                  <input type="checkbox" checked={addCountIn} onChange={(event) => setAddCountIn(event.target.checked)} disabled={active} className="size-4 accent-emerald-700" />
+                  Add count-in
+                </label>
+                {addCountIn && (
+                  <label className="mt-4 block text-sm font-medium" htmlFor="count-in-seconds">
+                    Count-in (seconds)
+                    <input id="count-in-seconds" type="number" min="1" max="3600" step="1" value={countInSeconds} onChange={(event) => setCountInSeconds(event.target.value)} disabled={active} className={inputClass} />
+                  </label>
+                )}
+                <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+                  <input type="checkbox" checked={timerBellAtStart} onChange={(event) => setTimerBellAtStart(event.target.checked)} disabled={active} className="size-4 accent-emerald-700" />
+                  Play bell at timer start
+                </label>
+                <label className="mt-4 flex items-center gap-3 text-sm font-medium">
+                  <input type="checkbox" checked={keepAwake} onChange={(event) => setKeepAwake(event.target.checked)} disabled={active} className="size-4 accent-emerald-700" />
+                  Keep screen awake while timer runs
+                </label>
+              </>
+            )}
             {mode === "Interval" && (
               <>
                 <label className="mt-4 flex items-center gap-3 text-sm font-medium">
@@ -242,10 +341,10 @@ function App() {
               </>
             )}
             <div className="mt-6 text-center">
-              <p className="text-sm text-stone-600">
-                {starting ? "Preparing bell…" : schedule ? waiting ? "Starting in" : stoppingNext ? "Session ends in" : "Next bell in" : mode === "Timer" ? status === "Timer complete." ? "Complete" : "Duration" : "Ready to start"}
+              <p className={`text-sm ${showingElapsed ? "font-medium text-amber-700" : "text-stone-600"}`}>
+                {starting ? "Preparing bell…" : schedule ? waiting ? "Starting in" : schedule.mode === "Timer" ? "Timer ends in" : stoppingNext ? "Session ends in" : "Next bell in" : completedTimer ? showingElapsed ? "Total time" : "Complete" : mode === "Timer" ? "Duration" : "Ready to start"}
               </p>
-              {(schedule || mode === "Timer") && <p role="timer" aria-label="Countdown" className="mt-2 text-5xl font-light tabular-nums">{countdown(remaining)}</p>}
+              {(schedule || mode === "Timer") && <p role="timer" aria-label={showingElapsed ? "Total time" : "Countdown"} className={`mt-2 text-5xl font-light tabular-nums ${showingElapsed ? "text-amber-700" : ""}`}>{showingElapsed ? elapsedTime(now - completedTimer!.start) : countdown(remaining)}</p>}
               {schedule?.end && <p className="mt-3 text-xs text-stone-500">Ends {new Date(schedule.end).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
             </div>
           </div>
@@ -257,7 +356,7 @@ function App() {
             disabled={mode !== "Bell" && active}
             className="cursor-pointer rounded-full bg-emerald-700 disabled:cursor-default disabled:opacity-50 px-8 py-3 font-medium text-white transition-colors hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-700"
           >
-            {mode === "Bell" ? "Play bell" : active ? "Running" : `Start ${mode.toLowerCase()}`}
+            {mode === "Bell" ? "Play bell" : completedTimer ? "Completed" : active ? "Running" : `Start ${mode.toLowerCase()}`}
           </button>
           <button
             type="button"

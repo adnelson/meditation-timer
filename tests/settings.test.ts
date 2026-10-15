@@ -8,7 +8,7 @@ test("settings round-trip including muted volume and disabled start bell", () =>
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => { values.set(key, value); },
   };
-  const settings = { ...DEFAULT_SETTINGS, mode: "Interval" as const, timerMinutes: "12.5", intervalMinutes: "3", startTime: "09:15", stopTime: "23:30", ringAtStart: false, volume: 0 };
+  const settings = { ...DEFAULT_SETTINGS, mode: "Interval" as const, timerMinutes: "12:30", addCountIn: true, countInSeconds: "15", timerBellAtStart: false, keepAwake: false, intervalMinutes: "3", startTime: "09:15", stopTime: "23:30", ringAtStart: false, volume: 0 };
   saveSettings(settings, storage);
   assert.ok(values.has(SETTINGS_KEY));
   assert.deepEqual(loadSettings(storage), settings);
@@ -21,7 +21,7 @@ test("missing or malformed saved settings use defaults", () => {
 });
 
 test("invalid fields fall back independently while valid preferences survive", () => {
-  const raw = { mode: "Timer", timerMinutes: "-2", intervalMinutes: "Infinity", startTime: "24:01", stopTime: "18:00", ringAtStart: "false", volume: 101 };
+  const raw = { mode: "Timer", timerMinutes: "-2", addCountIn: "true", countInSeconds: "1.5", timerBellAtStart: "false", keepAwake: "false", intervalMinutes: "Infinity", startTime: "24:01", stopTime: "18:00", ringAtStart: "false", volume: 101 };
   assert.deepEqual(loadSettings({ getItem: () => JSON.stringify(raw) }), {
     ...DEFAULT_SETTINGS, mode: "Timer", stopTime: "18:00",
   });

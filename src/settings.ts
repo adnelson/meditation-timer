@@ -1,8 +1,13 @@
+import { timerDurationToMs } from "./schedule.ts";
 import type { Mode } from "./schedule";
 
 export type Settings = {
   mode: Mode;
   timerMinutes: string;
+  addCountIn: boolean;
+  countInSeconds: string;
+  timerBellAtStart: boolean;
+  keepAwake: boolean;
   intervalMinutes: string;
   ringAtStart: boolean;
   startTime: string;
@@ -14,6 +19,10 @@ export const SETTINGS_KEY = "meditation-timer.settings.v1";
 export const DEFAULT_SETTINGS: Settings = {
   mode: "Bell",
   timerMinutes: "10",
+  addCountIn: false,
+  countInSeconds: "10",
+  timerBellAtStart: true,
+  keepAwake: true,
   intervalMinutes: "5",
   ringAtStart: true,
   startTime: "",
@@ -24,6 +33,21 @@ export const DEFAULT_SETTINGS: Settings = {
 function validMinutes(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Number(value)) &&
     Number(value) > 0 && Number(value) <= 1440;
+}
+
+function validTimerDuration(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    timerDurationToMs(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validCountIn(value: unknown): value is string {
+  return typeof value === "string" && Number.isInteger(Number(value)) &&
+    Number(value) >= 1 && Number(value) <= 3600;
 }
 
 function validTime(value: unknown): value is string {
@@ -37,7 +61,11 @@ export function loadSettings(storage?: Pick<Storage, "getItem">): Settings {
     const saved = raw as Record<string, unknown>;
     return {
       mode: saved.mode === "Bell" || saved.mode === "Timer" || saved.mode === "Interval" ? saved.mode : DEFAULT_SETTINGS.mode,
-      timerMinutes: validMinutes(saved.timerMinutes) ? saved.timerMinutes : DEFAULT_SETTINGS.timerMinutes,
+      timerMinutes: validTimerDuration(saved.timerMinutes) ? saved.timerMinutes : DEFAULT_SETTINGS.timerMinutes,
+      addCountIn: typeof saved.addCountIn === "boolean" ? saved.addCountIn : DEFAULT_SETTINGS.addCountIn,
+      countInSeconds: validCountIn(saved.countInSeconds) ? saved.countInSeconds : DEFAULT_SETTINGS.countInSeconds,
+      timerBellAtStart: typeof saved.timerBellAtStart === "boolean" ? saved.timerBellAtStart : DEFAULT_SETTINGS.timerBellAtStart,
+      keepAwake: typeof saved.keepAwake === "boolean" ? saved.keepAwake : DEFAULT_SETTINGS.keepAwake,
       intervalMinutes: validMinutes(saved.intervalMinutes) ? saved.intervalMinutes : DEFAULT_SETTINGS.intervalMinutes,
       ringAtStart: typeof saved.ringAtStart === "boolean" ? saved.ringAtStart : DEFAULT_SETTINGS.ringAtStart,
       startTime: validTime(saved.startTime) ? saved.startTime : DEFAULT_SETTINGS.startTime,
